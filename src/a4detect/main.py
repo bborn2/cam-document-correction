@@ -26,9 +26,9 @@ def build_detector(args: argparse.Namespace) -> Detector:
         from .onnx_seg_detector import OnnxSegDetector  # lazy import (optional dep)
 
         return OnnxSegDetector(args.weights, conf=args.conf, iou=args.iou)
-    if args.detector == "onnx":
+    if args.detector == "obb":
         if not args.weights:
-            raise SystemExit("--detector onnx requires --weights path/to/best.onnx")
+            raise SystemExit("--detector obb requires --weights path/to/best.onnx")
         from .onnx_detector import OnnxObbDetector  # lazy import (optional dep)
 
         return OnnxObbDetector(args.weights, conf=args.conf, iou=args.iou)
@@ -45,8 +45,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Real-time A4 paper detection from a webcam.")
     parser.add_argument("--camera", type=int, default=0, help="Camera index (default: 0).")
     parser.add_argument(
-        "--detector", choices=["cv", "onnx", "seg", "yolo"], default="cv",
-        help="Detector backend: 'cv' (traditional), 'onnx' (trained OBB), "
+        "--detector", choices=["cv", "obb", "seg", "yolo"], default="cv",
+        help="Detector backend: 'cv' (traditional), 'obb' (trained OBB rotated box), "
              "'seg' (trained segmentation, draws vertices), or 'yolo' (ultralytics .pt).",
     )
     parser.add_argument(
