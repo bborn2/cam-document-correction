@@ -72,6 +72,7 @@ class OnnxSegDetector(Detector):
         iou: float = 0.45,
         label: str = "A4",
         mask_thresh: float = 0.5,
+        imgsz: int | None = None,
     ) -> None:
         try:
             import onnxruntime as ort  # noqa: PLC0415 (lazy, optional dep)
@@ -80,9 +81,29 @@ class OnnxSegDetector(Detector):
 
         self.session = ort.InferenceSession(weights_path, providers=["CPUExecutionProvider"])
         self.input_name = self.session.get_inputs()[0].name
-        # Read input size from the model (handles both 640 and 1024 exports).
+
+        # Decide the inference input size, in priority order:
+        #   1. explicit imgsz argument (e.g. --imgsz 320)
+        #   2. fixed size baked into the model's input shape
+        #   3. the model's exported `imgsz` metadata
+        #   4. fallback INPUT_SIZE
         shape = self.session.get_inputs()[0].shape
-        self.input_size = int(shape[2]) if shape[2] is not None else INPUT_SIZE
+        fixed = shape[2] if isinstance(shape[2], int) else None
+        if imgsz is not None:
+            self.input_size = int(imgsz)
+        elif fixed is not None:
+            self.input_size = int(fixed)
+        else:
+            meta = self.session.get_modelmeta().custom_metadata_map
+            try:
+                # metadata imgsz looks like "[1024, 1024]"
+                self.input_size = int(meta.get("imgsz", "").strip("[] ").split(",")[0])
+            except (ValueError, IndexError):
+                self.input_size = INPUT_SIZE
+
+        # Models with a dynamic input must receive a multiple of the stride (32).
+        self.input_size = max(32, (self.input_size // 32) * 32)
+
         self.conf = conf
         self.iou = iou
         self.label = label

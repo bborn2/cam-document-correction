@@ -113,9 +113,39 @@ class OnnxPoseDetector(Detector):
 
 
 def warp_perspective(frame: np.ndarray, quad: np.ndarray,
-                     out_w: int = 800, out_h: int = 1100) -> np.ndarray:
-    """Warp the region defined by quad (TL, TR, BR, BL) to a flat rectangle."""
+                     out_w: int | None = None, out_h: int | None = None,
+                     max_size: int = 1000) -> np.ndarray:
+    """Warp the region defined by quad (TL, TR, BR, BL) to a flat rectangle.
+
+    If out_w/out_h are not given, the output size is derived from the document's
+    *actual* aspect ratio (measured from the quad's edge lengths), so documents
+    that are not A4 are not distorted. ``max_size`` caps the longer output side.
+    """
     src = quad.astype(np.float32)
+    tl, tr, br, bl = src
+
+    # Measure real side lengths in the source image.
+    width = (np.linalg.norm(tr - tl) + np.linalg.norm(br - bl)) / 2.0
+    height = (np.linalg.norm(bl - tl) + np.linalg.norm(br - tr)) / 2.0
+    width = max(width, 1.0)
+    height = max(height, 1.0)
+
+    if out_w is None and out_h is None:
+        # Keep the document's true aspect ratio; cap the longer side to max_size.
+        if width >= height:
+            out_w = int(min(width, max_size))
+            out_h = int(round(out_w * height / width))
+        else:
+            out_h = int(min(height, max_size))
+            out_w = int(round(out_h * width / height))
+    elif out_h is None:
+        out_h = int(round(out_w * height / width))
+    elif out_w is None:
+        out_w = int(round(out_h * width / height))
+
+    out_w = max(out_w, 1)
+    out_h = max(out_h, 1)
+
     dst = np.array([[0, 0], [out_w, 0], [out_w, out_h], [0, out_h]], dtype=np.float32)
     M = cv2.getPerspectiveTransform(src, dst)
     return cv2.warpPerspective(frame, M, (out_w, out_h))

@@ -32,7 +32,7 @@ def build_detector(args: argparse.Namespace) -> Detector:
             raise SystemExit("--detector seg requires --weights path/to/best.onnx")
         from .onnx_seg_detector import OnnxSegDetector  # lazy import (optional dep)
 
-        return OnnxSegDetector(args.weights, conf=args.conf, iou=args.iou)
+        return OnnxSegDetector(args.weights, conf=args.conf, iou=args.iou, imgsz=args.imgsz)
     if args.detector == "obb":
         if not args.weights:
             raise SystemExit("--detector obb requires --weights path/to/best.onnx")
@@ -63,6 +63,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold.")
     parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold (onnx).")
+    parser.add_argument(
+        "--imgsz", type=int, default=None,
+        help="Model inference input size, e.g. 320/640/1024. Required for ONNX models "
+             "exported with a dynamic input; rounded down to a multiple of 32.",
+    )
     parser.add_argument("--width", type=int, default=1280, help="Capture width.")
     parser.add_argument("--height", type=int, default=720, help="Capture height.")
     parser.add_argument(
@@ -75,6 +80,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.set_defaults(smooth=True)
     parser.add_argument(
+        "--warp", action="store_true",
+        help="Show a small window with the perspective-corrected (flattened) A4.",
+    )
+    parser.add_argument(
+        "--warp-width", type=int, default=500,
+        help="Max size (px) of the longer side of the perspective-corrected window. "
+             "The aspect ratio follows the actual detected document.",
+    )
+    parser.add_argument(
         "--debug", action="store_true",
         help="Show an extra window with the brightness mask and edge map (cv detector).",
     )
@@ -85,6 +99,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     detector = build_detector(args)
     smoother = DetectionSmoother(alpha=args.alpha) if args.smooth else None
+
+    # Small perspective-correction preview window (sized to the actual document).
+    if args.warp:
+        cv2.namedWindow(WARP_WINDOW, cv2.WINDOW_NORMAL)
 
     prev = time.perf_counter()
     fps = 0.0
@@ -101,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
                 detections = smoother.update(detections)
 
             # Keep a clean copy (before overlays) for perspective correction.
-            clean = frame.copy() if args.detector == "pose" else None
+            clean = frame.copy() if args.warp else None
             draw_detections(frame, detections)
 
             now = time.perf_counter()
@@ -116,11 +134,12 @@ def main(argv: list[str] | None = None) -> int:
 
             cv2.imshow(WINDOW_NAME, frame)
 
-            # Pose detector: show the perspective-corrected ("flattened") document.
-            if args.detector == "pose" and detections and clean is not None:
+            # Perspective-corrected ("flattened") document in a small window,
+            # sized to the document's real aspect ratio (not forced to A4).
+            if args.warp and detections and clean is not None:
                 from .onnx_pose_detector import warp_perspective
 
-                warped = warp_perspective(clean, detections[0].quad)
+                warped = warp_perspective(clean, detections[0].quad, max_size=args.warp_width)
                 cv2.imshow(WARP_WINDOW, warped)
 
             # Debug window: show internal masks/edges side by side.
