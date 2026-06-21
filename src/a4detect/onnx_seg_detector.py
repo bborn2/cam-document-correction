@@ -80,6 +80,9 @@ class OnnxSegDetector(Detector):
 
         self.session = ort.InferenceSession(weights_path, providers=["CPUExecutionProvider"])
         self.input_name = self.session.get_inputs()[0].name
+        # Read input size from the model (handles both 640 and 1024 exports).
+        shape = self.session.get_inputs()[0].shape
+        self.input_size = int(shape[2]) if shape[2] is not None else INPUT_SIZE
         self.conf = conf
         self.iou = iou
         self.label = label
@@ -87,11 +90,12 @@ class OnnxSegDetector(Detector):
 
     def _letterbox(self, frame: np.ndarray) -> tuple[np.ndarray, float, int, int]:
         h, w = frame.shape[:2]
-        scale = min(INPUT_SIZE / w, INPUT_SIZE / h)
+        sz = self.input_size
+        scale = min(sz / w, sz / h)
         nw, nh = int(round(w * scale)), int(round(h * scale))
         resized = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_LINEAR)
-        canvas = np.full((INPUT_SIZE, INPUT_SIZE, 3), 114, dtype=np.uint8)
-        padx, pady = (INPUT_SIZE - nw) // 2, (INPUT_SIZE - nh) // 2
+        canvas = np.full((sz, sz, 3), 114, dtype=np.uint8)
+        padx, pady = (sz - nw) // 2, (sz - nh) // 2
         canvas[pady:pady + nh, padx:padx + nw] = resized
         return canvas, scale, padx, pady
 
@@ -131,16 +135,17 @@ class OnnxSegDetector(Detector):
         protos_flat = protos.reshape(NUM_MASKS, -1)     # (32, 160*160)
 
         detections: list[Detection] = []
+        sz = self.input_size
         for i in idxs:
-            # Build the instance mask at proto resolution, then upscale to 640.
+            # Build the instance mask at proto resolution, then upscale to input.
             m = _sigmoid(coeffs[i] @ protos_flat).reshape(mh, mw)
-            m = cv2.resize(m, (INPUT_SIZE, INPUT_SIZE), interpolation=cv2.INTER_LINEAR)
+            m = cv2.resize(m, (sz, sz), interpolation=cv2.INTER_LINEAR)
             bin_mask = (m > self.mask_thresh).astype(np.uint8)
 
             # Restrict to this detection's box to avoid leaking onto other objects.
             cx, cy, bw, bh = boxes_xywh[i]
             x1 = int(max(0, cx - bw / 2)); y1 = int(max(0, cy - bh / 2))
-            x2 = int(min(INPUT_SIZE, cx + bw / 2)); y2 = int(min(INPUT_SIZE, cy + bh / 2))
+            x2 = int(min(sz, cx + bw / 2)); y2 = int(min(sz, cy + bh / 2))
             box_only = np.zeros_like(bin_mask)
             box_only[y1:y2, x1:x2] = bin_mask[y1:y2, x1:x2]
 
