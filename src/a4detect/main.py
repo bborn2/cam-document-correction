@@ -71,6 +71,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=1280, help="Capture width.")
     parser.add_argument("--height", type=int, default=720, help="Capture height.")
     parser.add_argument(
+        "--max-res", action="store_true",
+        help="Use the camera's highest supported resolution (overrides --width/--height).",
+    )
+    parser.add_argument(
         "--no-smooth", dest="smooth", action="store_false",
         help="Disable temporal smoothing (smoothing is ON by default).",
     )
@@ -87,6 +91,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--warp-width", type=int, default=500,
         help="Max size (px) of the longer side of the perspective-corrected window. "
              "The aspect ratio follows the actual detected document.",
+    )
+    parser.add_argument(
+        "--flip180", action="store_true",
+        help="Rotate the perspective-corrected image 180 degrees (turn it right-side up).",
     )
     parser.add_argument(
         "--debug", action="store_true",
@@ -107,7 +115,8 @@ def main(argv: list[str] | None = None) -> int:
     prev = time.perf_counter()
     fps = 0.0
 
-    with Camera(args.camera, args.width, args.height) as cam:
+    with Camera(args.camera, args.width, args.height, max_res=args.max_res) as cam:
+        print(f"Camera resolution: {cam.width}x{cam.height}")
         while True:
             frame = cam.read()
             if frame is None:
@@ -139,7 +148,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.warp and detections and clean is not None:
                 from .onnx_pose_detector import warp_perspective
 
-                warped = warp_perspective(clean, detections[0].quad, max_size=args.warp_width)
+                warped = warp_perspective(clean, detections[0].quad, max_size=args.warp_width,
+                                          rotate180=args.flip180)
                 cv2.imshow(WARP_WINDOW, warped)
 
             # Debug window: show internal masks/edges side by side.
