@@ -39,3 +39,4 @@ Thumbs.db
 
 # Note: model weights (*.onnx, *.pt) are intentionally NOT ignored
 # so they are versioned with the project.
+*.onnx
